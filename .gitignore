@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Listas de contactos: son datos personales, no van al repo
+contactos.xlsx
+*.xlsx

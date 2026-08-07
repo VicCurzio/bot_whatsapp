@@ -8,6 +8,8 @@ import random
 import re
 import os
 
+from version import __version__, format_releases, get_releases, pending_notes, write_last_seen
+
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("green")
 
@@ -15,7 +17,7 @@ ctk.set_default_color_theme("green")
 class WhatsAppBotGUI:
     def __init__(self):
         self.root = ctk.CTk()
-        self.root.title("Bot WhatsApp")
+        self.root.title(f"Bot WhatsApp v{__version__}")
         self.root.geometry("1200x750")
         self.root.minsize(1000, 650)
 
@@ -26,17 +28,30 @@ class WhatsAppBotGUI:
 
         self._build_ui()
 
+        # Si el bot se actualizo desde la ultima vez, contar que cambio.
+        self.root.after(400, self._mostrar_novedades_si_hay)
+
     def _build_ui(self):
         # Main container
         main = ctk.CTkFrame(self.root)
         main.pack(fill="both", expand=True, padx=15, pady=15)
 
         # Title
+        header = ctk.CTkFrame(main, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 15))
+
         title = ctk.CTkLabel(
-            main, text="🤖 Bot de WhatsApp",
+            header, text="Bot de WhatsApp",
             font=ctk.CTkFont(size=24, weight="bold")
         )
-        title.pack(pady=(0, 15))
+        title.pack(side="left", expand=True)
+
+        ctk.CTkButton(
+            header, text=f"v{__version__}  ·  Novedades", width=150, height=28,
+            fg_color="transparent", border_width=1,
+            font=ctk.CTkFont(size=11),
+            command=self._mostrar_historial
+        ).pack(side="right")
 
         # Content: left (contacts + config) + right (message + log)
         content = ctk.CTkFrame(main)
@@ -69,9 +84,9 @@ class WhatsAppBotGUI:
         self.file_entry.insert(0, "contactos.xlsx")
         self.file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
-        ctk.CTkButton(file_row, text="📂 Buscar", width=90,
+        ctk.CTkButton(file_row, text="Buscar", width=90,
                        command=self._seleccionar_archivo).pack(side="left")
-        ctk.CTkButton(file_row, text="🔄 Cargar", width=90,
+        ctk.CTkButton(file_row, text="Cargar", width=90,
                        command=self._cargar_excel).pack(side="left", padx=(5, 0))
 
         # Sheet selector
@@ -102,7 +117,7 @@ class WhatsAppBotGUI:
         table_frame = ctk.CTkFrame(parent)
         table_frame.pack(fill="both", expand=True, pady=(0, 10))
 
-        ctk.CTkLabel(table_frame, text="📋 Vista previa de contactos",
+        ctk.CTkLabel(table_frame, text="Vista previa de contactos",
                       font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(10, 5))
 
         # Scrollable table
@@ -113,7 +128,7 @@ class WhatsAppBotGUI:
         config_frame = ctk.CTkFrame(parent)
         config_frame.pack(fill="x")
 
-        ctk.CTkLabel(config_frame, text="⚙️ Configuración de envío",
+        ctk.CTkLabel(config_frame, text="Configuración de envío",
                       font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(10, 5))
 
         config_grid = ctk.CTkFrame(config_frame, fg_color="transparent")
@@ -145,13 +160,15 @@ class WhatsAppBotGUI:
         msg_frame = ctk.CTkFrame(parent)
         msg_frame.pack(fill="both", expand=True, pady=(0, 10))
 
-        ctk.CTkLabel(msg_frame, text="✏️ Mensaje a enviar",
+        ctk.CTkLabel(msg_frame, text="Mensaje a enviar",
                       font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(10, 5))
 
         self.msg_text = ctk.CTkTextbox(msg_frame, wrap="word", font=ctk.CTkFont(size=12))
         self.msg_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.msg_text.insert("1.0", """Hola, ¿cómo estás? 👋
-Escribí acá tu mensaje personalizado."""
+        self.msg_text.insert(
+            "1.0",
+            "Hola, ¿cómo estás?\nEscribí acá tu mensaje personalizado.",
+        )
 
         # Controls
         ctrl_frame = ctk.CTkFrame(parent)
@@ -161,14 +178,14 @@ Escribí acá tu mensaje personalizado."""
         ctrl_row.pack(fill="x", padx=10, pady=10)
 
         self.start_btn = ctk.CTkButton(
-            ctrl_row, text="▶️ INICIAR ENVÍO", fg_color="#2ea043",
+            ctrl_row, text="INICIAR ENVÍO", fg_color="#2ea043",
             hover_color="#1f7a34", height=40, font=ctk.CTkFont(size=14, weight="bold"),
             command=self._iniciar_envio
         )
         self.start_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         self.stop_btn = ctk.CTkButton(
-            ctrl_row, text="⏹ DETENER", fg_color="#da3633",
+            ctrl_row, text="DETENER", fg_color="#da3633",
             hover_color="#b02625", height=40, font=ctk.CTkFont(size=14, weight="bold"),
             state="disabled", command=self._detener_envio
         )
@@ -186,7 +203,7 @@ Escribí acá tu mensaje personalizado."""
         log_frame = ctk.CTkFrame(parent)
         log_frame.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(log_frame, text="📝 Registro de actividad",
+        ctk.CTkLabel(log_frame, text="Registro de actividad",
                       font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=10, pady=(10, 5))
 
         self.log_text = ctk.CTkTextbox(log_frame, wrap="word", font=ctk.CTkFont(size=11), state="disabled")
@@ -194,10 +211,52 @@ Escribí acá tu mensaje personalizado."""
 
         # Status bar
         self.status_bar = ctk.CTkLabel(
-            self.root, text="✅ Listo. Carga un archivo Excel para comenzar.",
+            self.root, text="Listo. Carga un archivo Excel para comenzar.",
             font=ctk.CTkFont(size=11), anchor="w",
             fg_color=("#d9d9d9", "#2b2b2b"))
         self.status_bar.pack(side="bottom", fill="x", padx=15, pady=(0, 15), ipady=2)
+
+    # ---- Novedades ----
+
+    def _mostrar_novedades_si_hay(self):
+        """Se muestra una sola vez por version, al abrir despues de actualizar."""
+        notas = pending_notes()
+        write_last_seen()
+        if notas:
+            self._ventana_notas("Novedades", notas)
+
+    def _mostrar_historial(self):
+        releases = get_releases()
+        texto = format_releases(releases) if releases else "Todavia no hay novedades registradas."
+        self._ventana_notas("Historial de versiones", texto)
+
+    def _ventana_notas(self, titulo, texto):
+        ventana = ctk.CTkToplevel(self.root)
+        ventana.title(titulo)
+        ventana.geometry("620x520")
+        ventana.transient(self.root)
+
+        ctk.CTkLabel(
+            ventana, text=titulo, font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(anchor="w", padx=20, pady=(20, 4))
+
+        ctk.CTkLabel(
+            ventana, text="Esto es lo que cambio en el bot.",
+            font=ctk.CTkFont(size=12), text_color=("#555555", "#aaaaaa")
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+
+        caja = ctk.CTkTextbox(ventana, wrap="word", font=ctk.CTkFont(size=12))
+        caja.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+        caja.insert("1.0", texto)
+        caja.configure(state="disabled")
+
+        ctk.CTkButton(ventana, text="Entendido", command=ventana.destroy).pack(
+            pady=(0, 20)
+        )
+
+        # Traer al frente sin robar el foco de forma permanente.
+        ventana.after(100, ventana.lift)
+        ventana.after(150, ventana.focus)
 
     # ---- Logic ----
 
@@ -234,8 +293,8 @@ Escribí acá tu mensaje personalizado."""
         # Load first sheet for preview
         self.df_contactos = excel[sheets[0]]
         self._actualizar_tabla(excel)
-        self._log(f"📂 Excel cargado: {os.path.basename(archivo)} ({len(sheets)} pestañas)")
-        self._set_status(f"✅ Cargado: {os.path.basename(archivo)}")
+        self._log(f"Excel cargado: {os.path.basename(archivo)} ({len(sheets)} pestañas)")
+        self._set_status(f"Cargado: {os.path.basename(archivo)}")
 
     def _actualizar_tabla(self, excel_dict):
         for w in self.table_scroll.winfo_children():
@@ -275,7 +334,7 @@ Escribí acá tu mensaje personalizado."""
                 name_col = row.iloc[0] if row.index[0] != col else ""
                 name_str = str(name_col) if pd.notna(name_col) else ""
 
-                vals = [sheet_name, name_str[:30], num, "✅ Pendiente"]
+                vals = [sheet_name, name_str[:30], num, "Pendiente"]
                 for v in vals:
                     lbl = ctk.CTkLabel(row_frame, text=v, font=ctk.CTkFont(size=10))
                     lbl.pack(side="left", fill="x", expand=True, padx=2)
@@ -299,15 +358,15 @@ Escribí acá tu mensaje personalizado."""
         self.stop_requested = False
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
-        self._log("🚀 Envío iniciado...")
-        self._set_status("🚀 Enviando mensajes...")
+        self._log("Envío iniciado...")
+        self._set_status("Enviando mensajes...")
 
         threading.Thread(target=self._ejecutar_bot, daemon=True).start()
 
     def _detener_envio(self):
         self.stop_requested = True
-        self._log("⏹ Deteniendo envío... (esperá al mensaje actual)")
-        self._set_status("⏹ Deteniendo...")
+        self._log("Deteniendo envío... (esperá al mensaje actual)")
+        self._set_status("Deteniendo...")
 
     def _ejecutar_bot(self):
         try:
@@ -328,8 +387,8 @@ Escribí acá tu mensaje personalizado."""
 
             self.root.after(0, self.progress_bar.set, 0)
             self.root.after(0, self._actualizar_progreso, 0, total)
-            self.root.after(0, lambda: self._log(f"📊 Total a enviar: {total} mensajes"))
-            self.root.after(0, lambda: self._log(f"⏱ Arrancando en {wait_start}s..."))
+            self.root.after(0, lambda: self._log(f"Total a enviar: {total} mensajes"))
+            self.root.after(0, lambda: self._log(f"Arrancando en {wait_start}s..."))
 
             time.sleep(wait_start)
 
@@ -339,7 +398,7 @@ Escribí acá tu mensaje personalizado."""
 
                 for _, row in df.iterrows():
                     if self.stop_requested:
-                        self._log("⏹ Envío detenido por el usuario.")
+                        self._log("Envío detenido por el usuario.")
                         break
 
                     tel_original = row[col]
@@ -353,29 +412,29 @@ Escribí acá tu mensaje personalizado."""
                             wait_time=wait_load, tab_close=True
                         )
                         enviados += 1
-                        self.root.after(0, self._log, f"✅ [{enviados}/{total}] Enviado a {numero}")
+                        self.root.after(0, self._log, f"[{enviados}/{total}] Enviado a {numero}")
                         self.root.after(0, self.progress_bar.set, enviados / total)
                         self.root.after(0, self._actualizar_progreso, enviados, total)
                         self.root.after(0, self._set_status,
-                                        f"📤 Enviado {enviados}/{total} - {numero}")
+                                        f"Enviado {enviados}/{total} - {numero}")
 
                         if enviados < total and not self.stop_requested:
                             espera = random.randint(d_min, d_max)
-                            self.root.after(0, self._log, f"⏳ Esperando {espera}s...")
+                            self.root.after(0, self._log, f"Esperando {espera}s...")
                             if not self._esperar_con_stop(espera):
                                 break
                     except Exception as e:
-                        self.root.after(0, self._log, f"❌ Error con {numero}: {e}")
+                        self.root.after(0, self._log, f"Error con {numero}: {e}")
 
             if not self.stop_requested:
-                self._log("🏁 ¡Tarea completada!")
-                self.root.after(0, self._set_status, "✅ Envío completado")
+                self._log("Tarea completada.")
+                self.root.after(0, self._set_status, "Envío completado")
             else:
-                self.root.after(0, self._set_status, "⏹ Envío detenido")
+                self.root.after(0, self._set_status, "Envío detenido")
 
         except Exception as e:
-            self.root.after(0, self._log, f"❌ Error general: {e}")
-            self.root.after(0, self._set_status, "❌ Error")
+            self.root.after(0, self._log, f"Error general: {e}")
+            self.root.after(0, self._set_status, "Error")
         finally:
             self.running = False
             self.root.after(0, self.start_btn.configure, {"state": "normal"})
