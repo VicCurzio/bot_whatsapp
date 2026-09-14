@@ -1,11 +1,12 @@
 import sys
 import pywhatkit as kit
-import pandas as pd
 import time
 import random
 import os
-import re
 
+from contactos import leer_excel
+from envios_log import RegistroDeTanda
+from numeros import esta_marcado_para_saltear, normalizar_numero
 from version import __version__, format_releases, get_releases, pending_notes, write_last_seen
 
 # Configuración de carpeta
@@ -18,19 +19,6 @@ columna_buscada = "Tel"
 # Tu mensaje
 mensaje_plantilla = """Hola, ¿cómo estás?
 Escribí acá tu mensaje personalizado."""
-
-
-def limpiar_numero(num):
-    # Deja solo los dígitos
-    limpio = re.sub(r'\D', '', str(num))
-
-    # Si el número es válido (ej. 549...)
-    if len(limpio) >= 10:
-        if limpio.startswith('0'): limpio = limpio[1:] # Quita 0 inicial
-        if not limpio.startswith('54'):
-            limpio = '549' + limpio
-        return "+" + limpio
-    return None
 
 
 def manejar_flags():
@@ -61,7 +49,7 @@ write_last_seen()
 
 try:
     # Leemos todas las pestañas
-    excel_completo = pd.read_excel(archivo, sheet_name=None)
+    excel_completo = leer_excel(archivo)
     print("Excel cargado correctamente.")
 except Exception as e:
     print(f"Error al cargar Excel: {e}")
@@ -70,29 +58,48 @@ except Exception as e:
 print("El bot comenzará en 10 segundos. Asegurate de tener WhatsApp Web abierto.")
 time.sleep(10)
 
-for pestana, df in excel_completo.items():
-    if columna_buscada in df.columns:
-        print(f"--- Procesando pestaña: {pestana} ---")
-        for i, fila in df.iterrows():
-            tel_original = fila[columna_buscada]
-            numero = limpiar_numero(tel_original)
+# Una tanda, un archivo. Si esto se corta a la mitad, el registro dice hasta
+# donde llego: sin eso, la unica opcion es volver a mandarle a todos.
+registro = RegistroDeTanda(origen=archivo)
+if registro.ruta:
+    print(f"Registro de la tanda: {registro.ruta}")
 
-            if not numero or "mandar" in str(tel_original).lower():
-                continue
+try:
+    for pestana, hoja in excel_completo.items():
+        if hoja.tiene(columna_buscada):
+            print(f"--- Procesando pestaña: {pestana} ---")
+            for i, fila in hoja.numeradas():
+                tel_original = fila[columna_buscada]
+                numero = normalizar_numero(tel_original)
 
-            print(f"Enviando a: {numero}")
+                if not numero:
+                    registro.salteado(tel_original, "numero invalido", pestana, i)
+                    continue
 
-            try:
-                # wait_time en 25 para dar tiempo a que cargue bien el chat
-                kit.sendwhatmsg_instantly(numero, mensaje_plantilla, wait_time=25, tab_close=True)
+                if esta_marcado_para_saltear(tel_original):
+                    registro.salteado(tel_original, "marcado como 'mandar'", pestana, i)
+                    continue
 
-                # Intervalo aleatorio para parecer humano
-                espera = random.randint(25, 40)
-                print(f"Mensaje enviado. Esperando {espera}s...")
-                time.sleep(espera)
-            except Exception as e:
-                print(f"Error con {numero}: {e}")
-    else:
-        print(f"Pestaña '{pestana}' saltada (no tiene columna '{columna_buscada}')")
+                print(f"Enviando a: {numero}")
 
-print("Tarea completada.")
+                try:
+                    # wait_time en 25 para dar tiempo a que cargue bien el chat
+                    kit.sendwhatmsg_instantly(numero, mensaje_plantilla, wait_time=25, tab_close=True)
+                    registro.enviado(numero, pestana, i)
+
+                    # Intervalo aleatorio para parecer humano
+                    espera = random.randint(25, 40)
+                    print(f"Mensaje enviado. Esperando {espera}s...")
+                    time.sleep(espera)
+                except Exception as e:
+                    registro.fallido(numero, e, pestana, i)
+                    print(f"Error con {numero}: {e}")
+        else:
+            print(f"Pestaña '{pestana}' saltada (no tiene columna '{columna_buscada}')")
+
+    print("Tarea completada.")
+finally:
+    # Tambien con Ctrl+C: el resumen y la ruta del registro son justo lo que hace
+    # falta cuando la tanda se corta.
+    print(registro.resumen())
+    registro.cerrar()

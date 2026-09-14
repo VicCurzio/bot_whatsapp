@@ -1,0 +1,48 @@
+# Que existe este archivo es lo que hace que el bot se pueda instalar en otra
+# maquina y ande igual. Sin el, las dependencias vivian sueltas en un comando del
+# README, sin version: cualquiera que lo instale hoy se lleva otras versiones que
+# las que se probaron, y los errores aparecen recien al usarlo.
+#
+# Instalar: py -m pip install -e .
+# (el -e deja el codigo editable en su lugar, que es como se trabaja aca)
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bot-whatsapp"
+description = "Envio de mensajes de WhatsApp a una lista de contactos de un Excel"
+readme = "README.md"
+requires-python = ">=3.11"
+# La version vive en version.py y la sube scripts/release.py. Se lee de ahi para
+# que no haya dos numeros que puedan quedar distintos.
+dynamic = ["version"]
+
+# Versiones exactas a proposito: es una herramienta de escritorio que se instala
+# pocas veces y tiene que andar igual cada vez. Se actualizan a mano y se prueba.
+dependencies = [
+    "customtkinter==5.2.2",
+    "openpyxl==3.1.5",
+    "pywhatkit==5.4",
+]
+
+# Lo que hace falta para desarrollar, no para usar el bot. Se instala aparte:
+#   py -m pip install -e ".[dev]"
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pyinstaller==6.11.1",
+]
+
+[tool.setuptools]
+py-modules = ["bot_gui", "contactos", "ejecutar_bot", "envios_log", "numeros", "version"]
+
+[tool.pytest.ini_options]
+# Los tests importan los modulos de la raiz (numeros, contactos): sin esto,
+# pytest solo mira dentro de tests/ y no los encuentra.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools.dynamic]
+version = { attr = "version.__version__" }

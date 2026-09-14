@@ -1,13 +1,14 @@
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-import pandas as pd
 import pywhatkit as kit
 import threading
 import time
 import random
-import re
 import os
 
+from contactos import leer_excel
+from envios_log import RegistroDeTanda
+from numeros import esta_marcado_para_saltear, normalizar_numero
 from version import __version__, format_releases, get_releases, pending_notes, write_last_seen
 
 ctk.set_appearance_mode("dark")
@@ -280,7 +281,7 @@ class WhatsAppBotGUI:
             archivo = os.path.join(os.path.dirname(os.path.abspath(__file__)), archivo)
 
         try:
-            excel = pd.read_excel(archivo, sheet_name=None)
+            excel = leer_excel(archivo)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo cargar el Excel:\n{e}")
             return
@@ -290,8 +291,6 @@ class WhatsAppBotGUI:
         self.sheet_menu.configure(values=sheets)
         self.sheet_var.set("Todas")
 
-        # Load first sheet for preview
-        self.df_contactos = excel[sheets[0]]
         self._actualizar_tabla(excel)
         self._log(f"Excel cargado: {os.path.basename(archivo)} ({len(sheets)} pestañas)")
         self._set_status(f"Cargado: {os.path.basename(archivo)}")
@@ -303,9 +302,9 @@ class WhatsAppBotGUI:
         col = self.col_entry.get().strip()
         total = 0
 
-        for sheet_name, df in excel_dict.items():
-            if col in df.columns:
-                validos = sum(1 for _, r in df.iterrows() if self._validar_numero(r[col]))
+        for sheet_name, hoja in excel_dict.items():
+            if hoja.tiene(col):
+                validos = sum(1 for f in hoja.filas if normalizar_numero(f[col]))
                 total += validos
 
         self.contactos_label.configure(text=f"Contactos válidos: {total}")
@@ -320,34 +319,29 @@ class WhatsAppBotGUI:
             lbl = ctk.CTkLabel(header, text=c_name, font=ctk.CTkFont(size=11, weight="bold"))
             lbl.pack(side="left", fill="x", expand=True, padx=2, pady=2)
 
-        for sheet_name, df in excel_dict.items():
-            if col not in df.columns:
+        for sheet_name, hoja in excel_dict.items():
+            if not hoja.tiene(col):
                 continue
-            for _, row in df.iterrows():
-                num = self._validar_numero(row[col])
+
+            # Para mostrar al lado del teléfono: la primera columna que no sea
+            # la de teléfonos, que en la práctica es la del nombre.
+            columna_nombre = hoja.primera_columna_distinta_de(col)
+
+            for row in hoja.filas:
+                num = normalizar_numero(row[col])
                 if not num:
                     continue
 
                 row_frame = ctk.CTkFrame(self.table_scroll, fg_color="transparent")
                 row_frame.pack(fill="x", pady=1)
 
-                name_col = row.iloc[0] if row.index[0] != col else ""
-                name_str = str(name_col) if pd.notna(name_col) else ""
+                name_col = row[columna_nombre] if columna_nombre else None
+                name_str = str(name_col) if name_col is not None else ""
 
                 vals = [sheet_name, name_str[:30], num, "Pendiente"]
                 for v in vals:
                     lbl = ctk.CTkLabel(row_frame, text=v, font=ctk.CTkFont(size=10))
                     lbl.pack(side="left", fill="x", expand=True, padx=2)
-
-    def _validar_numero(self, tel):
-        limpio = re.sub(r'\D', '', str(tel))
-        if len(limpio) >= 10:
-            if limpio.startswith('0'):
-                limpio = limpio[1:]
-            if not limpio.startswith('54'):
-                limpio = '549' + limpio
-            return "+" + limpio
-        return None
 
     def _iniciar_envio(self):
         if not self.archivo_actual:
@@ -369,6 +363,7 @@ class WhatsAppBotGUI:
         self._set_status("Deteniendo...")
 
     def _ejecutar_bot(self):
+        registro = None
         try:
             col = self.col_entry.get().strip()
             wait_start = int(self.wait_start.get())
@@ -377,13 +372,20 @@ class WhatsAppBotGUI:
             d_max = int(self.delay_max.get())
             mensaje = self.msg_text.get("1.0", "end-1c")
 
-            excel = pd.read_excel(self.archivo_actual, sheet_name=None)
+            excel = leer_excel(self.archivo_actual)
 
             total = sum(
-                sum(1 for _, r in df.iterrows() if self._validar_numero(r[col]))
-                for df in excel.values() if col in df.columns
+                sum(1 for f in hoja.filas if normalizar_numero(f[col]))
+                for hoja in excel.values() if hoja.tiene(col)
             )
             enviados = 0
+
+            # Una tanda, un archivo. Si esto se corta a la mitad -- se cierra
+            # WhatsApp Web, se corta internet -- el registro dice hasta donde
+            # llego. El log de la ventana se pierde al cerrarla.
+            registro = RegistroDeTanda(origen=self.archivo_actual)
+            if registro.ruta:
+                self.root.after(0, self._log, f"Registro de la tanda: {registro.ruta}")
 
             self.root.after(0, self.progress_bar.set, 0)
             self.root.after(0, self._actualizar_progreso, 0, total)
@@ -392,18 +394,23 @@ class WhatsAppBotGUI:
 
             time.sleep(wait_start)
 
-            for sheet_name, df in excel.items():
-                if col not in df.columns or self.stop_requested:
+            for sheet_name, hoja in excel.items():
+                if not hoja.tiene(col) or self.stop_requested:
                     continue
 
-                for _, row in df.iterrows():
+                for row in hoja.filas:
                     if self.stop_requested:
                         self._log("Envío detenido por el usuario.")
                         break
 
                     tel_original = row[col]
-                    numero = self._validar_numero(tel_original)
-                    if not numero or "mandar" in str(tel_original).lower():
+                    numero = normalizar_numero(tel_original)
+                    if not numero:
+                        registro.salteado(tel_original, "numero invalido", sheet_name)
+                        continue
+
+                    if esta_marcado_para_saltear(tel_original):
+                        registro.salteado(tel_original, "marcado como 'mandar'", sheet_name)
                         continue
 
                     try:
@@ -411,6 +418,7 @@ class WhatsAppBotGUI:
                             numero, mensaje,
                             wait_time=wait_load, tab_close=True
                         )
+                        registro.enviado(numero, sheet_name)
                         enviados += 1
                         self.root.after(0, self._log, f"[{enviados}/{total}] Enviado a {numero}")
                         self.root.after(0, self.progress_bar.set, enviados / total)
@@ -424,6 +432,7 @@ class WhatsAppBotGUI:
                             if not self._esperar_con_stop(espera):
                                 break
                     except Exception as e:
+                        registro.fallido(numero, e, sheet_name)
                         self.root.after(0, self._log, f"Error con {numero}: {e}")
 
             if not self.stop_requested:
@@ -436,6 +445,13 @@ class WhatsAppBotGUI:
             self.root.after(0, self._log, f"Error general: {e}")
             self.root.after(0, self._set_status, "Error")
         finally:
+            # Va en el finally para que el resumen y la ruta del registro
+            # aparezcan tambien cuando la tanda se corta por un error.
+            if registro is not None:
+                for linea in registro.resumen().splitlines():
+                    self.root.after(0, self._log, linea)
+                registro.cerrar()
+
             self.running = False
             self.root.after(0, self.start_btn.configure, {"state": "normal"})
             self.root.after(0, self.stop_btn.configure, {"state": "disabled"})
