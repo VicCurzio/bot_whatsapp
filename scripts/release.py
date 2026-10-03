@@ -11,7 +11,7 @@ commitear.
 
 Opciones:
     --dry     muestra que haria, sin escribir nada
-    --tag     ademas crea el commit y el tag de git vX.Y.Z
+    --tag     ademas crea el commit y el tag anotado de git vX.Y.Z
 
 Sin dependencias a proposito: solo biblioteca estandar.
 """
@@ -116,12 +116,19 @@ def main() -> None:
         try:
             subprocess.run(["git", "add", "version.py", "CHANGELOG.md"], cwd=ROOT, check=True)
             subprocess.run(["git", "commit", "-m", f"Release v{version}"], cwd=ROOT, check=True)
-            subprocess.run(["git", "tag", f"v{version}"], cwd=ROOT, check=True)
+            # Anotado y no liviano: "git push --follow-tags" solo empuja los
+            # anotados, asi que un tag liviano se queda en local sin que nadie
+            # lo note.
+            subprocess.run(
+                ["git", "tag", "-a", f"v{version}", "-m", f"v{version}"],
+                cwd=ROOT,
+                check=True,
+            )
             print(f"  commit y tag v{version} creados")
         except subprocess.CalledProcessError:
             print("  no se pudo commitear/taggear (hay cambios sin guardar?)")
     else:
-        print(f"\nFalta: revisar, commitear y taggear.\n  git tag v{version}\n")
+        print(f"\nFalta: revisar, commitear y taggear.\n  git tag -a v{version} -m v{version}\n")
 
 
 if __name__ == "__main__":
