@@ -9,6 +9,9 @@ Lo que esta en `Sin publicar` se muestra recien cuando se corre
 
 ## [Sin publicar]
 
+
+## [1.1.0] - 2026-10-03
+
 ### Agregado
 
 - Registro de envios: cada tanda deja un archivo con a quien se le mando, a que hora y que paso con cada numero. Si el envio se corta a la mitad, queda escrito hasta donde llego.

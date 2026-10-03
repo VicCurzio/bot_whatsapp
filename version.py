@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 BASE_DIR = Path(__file__).resolve().parent
 CHANGELOG_PATH = BASE_DIR / "CHANGELOG.md"
