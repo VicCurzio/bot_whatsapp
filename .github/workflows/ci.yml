@@ -1,0 +1,32 @@
+# Corre los tests en cada push y en cada pull request.
+#
+# Lo que se prueba es la normalizacion de telefonos y la lectura del Excel: lo
+# unico del bot que se puede probar sin abrir un navegador, y lo que mas
+# importa. Un numero mal normalizado no falla con un error: manda el mensaje a
+# otra persona.
+#
+# Se instala con el mismo comando del README (`pip install -e ".[dev]"`) y no
+# con una lista de paquetes aparte, para que lo que se prueba sea la instalacion
+# que de verdad usa quien clona el repo. Si manana se agrega una dependencia,
+# entra sola.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: python -m pip install -e ".[dev]"
+
+      - run: pytest

@@ -1,5 +1,7 @@
 # Bot de WhatsApp
 
+[![CI](https://github.com/VicCurzio/bot_whatsapp/actions/workflows/ci.yml/badge.svg)](https://github.com/VicCurzio/bot_whatsapp/actions/workflows/ci.yml)
+
 Envía un mensaje de WhatsApp a una lista de contactos tomada de un Excel. Tiene
 una ventana con interfaz gráfica y una versión de consola. Funciona sobre
 WhatsApp Web: abre cada chat, escribe y manda.
